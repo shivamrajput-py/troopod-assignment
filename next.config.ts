@@ -1,17 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  rewrites: async () => {
-    return [
-      {
-        source: "/api/:path*",
-        destination:
-          process.env.NODE_ENV === "development"
-            ? "http://127.0.0.1:8000/api/:path*"
-            : "/api/",
-      },
-    ];
-  },
+  /* No rewrites needed — we use a Next.js API route for local dev
+     and Vercel's Python function for production */
 };
 
 export default nextConfig;

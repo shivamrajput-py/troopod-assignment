@@ -31,6 +31,7 @@
   }
 }
 
+/* ─── Animations ─── */
 @keyframes gradient {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -41,10 +42,140 @@
   animation: gradient 6s ease infinite;
 }
 
-.spinner {
-  @apply w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin;
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
+.animate-fade-in {
+  animation: fade-in 0.5s ease-out;
+}
+
+/* ─── Spinner ─── */
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(99,102,241,0.25);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Pipeline Tracker ─── */
+.pipeline-tracker {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.pipeline-step {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.pipeline-step__connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.step-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.step-icon--pending {
+  background: rgba(255,255,255,0.05);
+  border: 2px solid rgba(255,255,255,0.12);
+}
+
+.step-icon--active {
+  background: rgba(99,102,241,0.12);
+  border: 2px solid rgba(99,102,241,0.4);
+  box-shadow: 0 0 16px rgba(99,102,241,0.25);
+}
+
+.step-icon--done {
+  background: rgba(34,197,94,0.12);
+  border: 2px solid rgba(34,197,94,0.5);
+  color: #22c55e;
+}
+
+.step-icon--error {
+  background: rgba(239,68,68,0.12);
+  border: 2px solid rgba(239,68,68,0.5);
+  color: #ef4444;
+}
+
+.pipeline-step__line {
+  width: 2px;
+  height: 32px;
+  background: rgba(255,255,255,0.08);
+  transition: background 0.3s ease;
+}
+
+.pipeline-step__line--done {
+  background: rgba(34,197,94,0.35);
+}
+
+.pipeline-step__content {
+  padding-bottom: 20px;
+  padding-top: 4px;
+}
+
+.pipeline-step__label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #e5e7eb;
+  margin-bottom: 2px;
+  transition: color 0.3s;
+}
+
+.pipeline-step--active .pipeline-step__label {
+  color: #a5b4fc;
+}
+
+.pipeline-step--done .pipeline-step__label {
+  color: #86efac;
+}
+
+.pipeline-step--error .pipeline-step__label {
+  color: #fca5a5;
+}
+
+.pipeline-step__desc {
+  font-size: 0.8rem;
+  color: #6b7280;
+  line-height: 1.4;
+  max-width: 420px;
+}
+
+.pipeline-step--active .pipeline-step__desc {
+  color: #9ca3af;
+}
+
+/* ─── Body Background ─── */
 body {
   background-image: 
     radial-gradient(circle at 15% 50%, rgba(99, 102, 241, 0.08), transparent 25%),
