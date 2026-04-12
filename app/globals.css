@@ -4,8 +4,8 @@
   --color-gray-950: #0a0a0b;
   --color-indigo-500: #6366f1;
   --color-fuchsia-500: #d946ef;
-  --font-sans: var(--font-inter);
-  --font-display: var(--font-outfit);
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Outfit', 'Inter', system-ui, sans-serif;
 }
 
 /* Custom premium styling */
