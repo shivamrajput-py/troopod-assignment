@@ -205,13 +205,28 @@ function applyReplacements(
 ) {
   let html = rawHtml;
 
-  // Fix relative URLs for assets
+  // ── STEP 1: Strip ALL <script> tags ──
+  // Modern sites (Next.js, React, Vue) hydrate on load. When served via
+  // srcDoc iframe, hydration fails (CORS, origin mismatch) and React WIPES
+  // the server-rendered DOM — leaving blank sections.
+  // Removing scripts preserves the pre-rendered HTML exactly as-is.
+  html = html.replace(/<script[\s\S]*?<\/script>/gi, "");
+  // Also remove inline event handlers that might cause errors
+  html = html.replace(/\s+on\w+="[^"]*"/gi, "");
+
+  // ── STEP 2: Fix relative URLs ──
   html = html.replace(
-    /(<(?:link|script|img|source|video|audio)[^>]*\s(?:href|src)=["'])(\/)/gi,
+    /(<(?:link|img|source|video|audio)[^>]*\s(?:href|src)=["'])(\/)/gi,
     (_match: string, pre: string) => `${pre}${baseUrl}/`
   );
 
-  // Add <base> tag so all relative URLs resolve correctly
+  // Fix CSS url() references
+  html = html.replace(
+    /url\(\s*['"]?\//g,
+    `url(${baseUrl}/`
+  );
+
+  // Add <base> tag for any remaining relative URLs
   if (!/<base\s/i.test(html)) {
     html = html.replace(
       /(<head[^>]*>)/i,
@@ -219,7 +234,21 @@ function applyReplacements(
     );
   }
 
-  // Replace <title> and meta in <head> — safe, doesn't affect React root
+  // ── STEP 3: Apply text replacements directly ──
+  // Since we stripped scripts, there's no hydration to worry about.
+  // Direct regex replacement on the server-rendered HTML is safe.
+  if (replacements.new_h1) {
+    html = html.replace(
+      /(<h1[^>]*>)([\s\S]*?)(<\/h1>)/i,
+      `$1${replacements.new_h1}$3`
+    );
+  }
+  if (replacements.new_h2) {
+    html = html.replace(
+      /(<h2[^>]*>)([\s\S]*?)(<\/h2>)/i,
+      `$1${replacements.new_h2}$3`
+    );
+  }
   if (replacements.new_title) {
     html = html.replace(
       /(<title[^>]*>)([\s\S]*?)(<\/title>)/i,
@@ -233,103 +262,45 @@ function applyReplacements(
     );
   }
 
-  // ── NON-INVASIVE INJECTION ──
-  // We do NOT modify DOM elements directly because that breaks React/Next.js
-  // hydration (causes blank hero sections). Instead we inject:
-  // 1) CSS ::before pseudo-element for the banner (zero DOM impact)
-  // 2) A post-load <script> that modifies text AFTER React hydration completes
-
-  const bannerCSS = `
-    body::before {
-      content: "\\2726  Personalized by Troopod AI \\2014 Ad-matched Landing Page";
-      display: block;
-      background: linear-gradient(90deg, #6366f1, #a21caf);
-      color: white;
-      text-align: center;
-      padding: 10px 16px;
-      font-size: 13px;
-      font-family: system-ui, -apple-system, sans-serif;
-      position: sticky;
-      top: 0;
-      z-index: 99999;
-      letter-spacing: 0.02em;
-      font-weight: 500;
-    }
-  `;
-
-  // Build post-hydration replacement entries
-  const textReplacements: Array<{ selector: string; text: string }> = [];
-  if (replacements.new_h1) {
-    textReplacements.push({ selector: "h1", text: String(replacements.new_h1) });
-  }
-  if (replacements.new_h2) {
-    textReplacements.push({ selector: "h2", text: String(replacements.new_h2) });
-  }
+  // Replace hero paragraph (first long <p>)
   if (replacements.new_hero_paragraph) {
-    textReplacements.push({ selector: "__hero_p__", text: String(replacements.new_hero_paragraph) });
+    let replaced = false;
+    html = html.replace(
+      /(<p[^>]*>)([\s\S]*?)(<\/p>)/gi,
+      (match, open, content, close) => {
+        if (!replaced && content.replace(/<[^>]+>/g, "").trim().length > 30) {
+          replaced = true;
+          return `${open}${replacements.new_hero_paragraph}${close}`;
+        }
+        return match;
+      }
+    );
   }
+
+  // Replace CTA button text
   if (replacements.new_cta_primary) {
-    textReplacements.push({ selector: "__cta__", text: String(replacements.new_cta_primary) });
+    const ctaKw = ["get","start","try","buy","sign","join","book","free","demo","contact","learn","analyse","analyze"];
+    let replaced = false;
+    html = html.replace(
+      /(<(?:a|button)[^>]*>)([\s\S]*?)(<\/(?:a|button)>)/gi,
+      (match, open, content, close) => {
+        const text = content.replace(/<[^>]+>/g, "").trim();
+        if (!replaced && text.length < 60 && ctaKw.some(kw => text.toLowerCase().includes(kw))) {
+          replaced = true;
+          return `${open}${replacements.new_cta_primary}${close}`;
+        }
+        return match;
+      }
+    );
   }
 
-  const replacementsJson = JSON.stringify(textReplacements).replace(/</g, "\\u003c");
-
-  const injectionScript = `
-    <script>
-      (function() {
-        function applyChanges() {
-          var reps = ${replacementsJson};
-          for (var i = 0; i < reps.length; i++) {
-            var r = reps[i];
-            try {
-              if (r.selector === '__hero_p__') {
-                var ps = document.querySelectorAll('p');
-                for (var j = 0; j < ps.length; j++) {
-                  if (ps[j].textContent.trim().length > 30) {
-                    ps[j].textContent = r.text;
-                    break;
-                  }
-                }
-              } else if (r.selector === '__cta__') {
-                var btns = document.querySelectorAll('a, button');
-                var kw = ['get','start','try','buy','sign','join','book','free','demo','contact','learn','analyse','analyze'];
-                for (var j = 0; j < btns.length; j++) {
-                  var txt = btns[j].textContent.trim().toLowerCase();
-                  if (txt.length < 60 && kw.some(function(k) { return txt.indexOf(k) !== -1; })) {
-                    btns[j].textContent = r.text;
-                    break;
-                  }
-                }
-              } else {
-                var el = document.querySelector(r.selector);
-                if (el) el.textContent = r.text;
-              }
-            } catch(e) { /* skip failed replacement */ }
-          }
-        }
-        // Wait for React hydration to finish before modifying text
-        if (document.readyState === 'complete') {
-          setTimeout(applyChanges, 2000);
-        } else {
-          window.addEventListener('load', function() {
-            setTimeout(applyChanges, 2000);
-          });
-        }
-      })();
-    </script>
-  `;
-
-  // Inject CSS into <head> — no DOM change, banner via pseudo-element
-  html = html.replace(
-    /(<\/head>)/i,
-    `<style>${bannerCSS}</style>\n$1`
-  );
-
-  // Inject script before </body> — runs after hydration
-  if (/<\/body>/i.test(html)) {
-    html = html.replace(/(<\/body>)/i, `${injectionScript}\n$1`);
+  // ── STEP 4: Inject banner ──
+  // Now safe to inject DOM since no JS will re-render
+  const banner = `<div style="background:linear-gradient(90deg,#6366f1,#a21caf);color:white;text-align:center;padding:10px 16px;font-size:13px;font-family:system-ui,sans-serif;position:sticky;top:0;z-index:99999;letter-spacing:0.02em;font-weight:500;">&#10022; Personalized by <strong>Troopod AI</strong> &mdash; Ad-matched Landing Page</div>`;
+  if (/<body[^>]*>/i.test(html)) {
+    html = html.replace(/(<body[^>]*>)/i, `$1\n${banner}`);
   } else {
-    html += injectionScript;
+    html = banner + "\n" + html;
   }
 
   return html;
@@ -389,7 +360,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Step 4: Apply replacements (instant, no network call) ──
+    // ── Step 4: Apply replacements ──
     let modifiedHtml: string;
     try {
       modifiedHtml = applyReplacements(
