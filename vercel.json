@@ -1,14 +1,8 @@
 {
   "functions": {
-    "api/**/*.py": {
-      "runtime": "@vercel/python@4.5.0",
+    "api/analyze.py": {
+      "runtime": "python3.9",
       "maxDuration": 60
     }
-  },
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/analyze"
-    }
-  ]
+  }
 }
