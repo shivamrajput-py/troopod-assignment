@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Allow up to 60 seconds for the full pipeline (scrape + 2 LLM calls + stitch)
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_VLM = "openai/gpt-4o-mini";

@@ -1,7 +1,6 @@
 {
   "functions": {
-    "api/analyze.py": {
-      "runtime": "@vercel/python@4.5.0",
+    "app/api/analyze/route.ts": {
       "maxDuration": 60
     }
   }
