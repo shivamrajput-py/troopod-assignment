@@ -15,6 +15,7 @@ interface ApiResult {
   modified_html: string;
   changes_summary: string[];
   ad_insights: Record<string, string>;
+  lp_url?: string;
   error?: string;
 }
 
@@ -479,21 +480,42 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="w-full rounded-2xl overflow-hidden glass-card border-white/20 shadow-2xl relative" style={{ height: "75vh" }}>
-            <div className="absolute top-0 left-0 w-full h-8 bg-gray-900 border-b border-white/10 flex items-center px-4 gap-2 z-10">
-              <div className="w-3 h-3 rounded-full bg-red-500" />
-              <div className="w-3 h-3 rounded-full bg-yellow-500" />
-              <div className="w-3 h-3 rounded-full bg-green-500" />
-              <div className="mx-auto flex-1 text-center text-xs text-gray-500 font-mono overflow-hidden whitespace-nowrap text-ellipsis px-10">
-                {lpUrl} — Modified
+          {/* Side-by-side: Original vs Modified */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Original Page */}
+            <div className="w-full rounded-2xl overflow-hidden glass-card border-white/20 shadow-2xl relative" style={{ height: "70vh" }}>
+              <div className="absolute top-0 left-0 w-full h-8 bg-gray-900 border-b border-white/10 flex items-center px-4 gap-2 z-10">
+                <div className="w-3 h-3 rounded-full bg-red-500" />
+                <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                <div className="w-3 h-3 rounded-full bg-green-500" />
+                <div className="mx-auto flex-1 text-center text-xs text-gray-500 font-mono overflow-hidden whitespace-nowrap text-ellipsis px-10">
+                  {lpUrl} — Original
+                </div>
               </div>
+              <iframe
+                src={lpUrl}
+                className="w-full h-full bg-white pt-8"
+                title="Original Page"
+              />
             </div>
-            <iframe
-              srcDoc={result.modified_html}
-              sandbox="allow-scripts allow-same-origin allow-popups"
-              className="w-full h-full bg-white pt-8"
-              title="Personalized Result"
-            />
+
+            {/* Modified Page */}
+            <div className="w-full rounded-2xl overflow-hidden glass-card border-indigo-500/30 shadow-2xl relative" style={{ height: "70vh" }}>
+              <div className="absolute top-0 left-0 w-full h-8 bg-gray-900 border-b border-white/10 flex items-center px-4 gap-2 z-10">
+                <div className="w-3 h-3 rounded-full bg-red-500" />
+                <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                <div className="w-3 h-3 rounded-full bg-green-500" />
+                <div className="mx-auto flex-1 text-center text-xs text-indigo-400 font-mono overflow-hidden whitespace-nowrap text-ellipsis px-10">
+                  {lpUrl} — ✦ Personalized
+                </div>
+              </div>
+              <iframe
+                srcDoc={result.modified_html}
+                sandbox="allow-scripts allow-same-origin allow-popups"
+                className="w-full h-full bg-white pt-8"
+                title="Personalized Result"
+              />
+            </div>
           </div>
         </div>
       )}
