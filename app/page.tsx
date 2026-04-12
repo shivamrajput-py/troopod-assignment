@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 type AppState = "idle" | "processing" | "success" | "error";
 
@@ -109,6 +109,20 @@ export default function Home() {
   const [steps, setSteps] = useState<PipelineStep[]>(INITIAL_STEPS);
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [previewReady, setPreviewReady] = useState(false);
+
+  // When result is ready, submit the modified HTML to the preview proxy
+  useEffect(() => {
+    if (result?.modified_html && formRef.current) {
+      setPreviewReady(false);
+      // Small delay to ensure the textarea value is set
+      setTimeout(() => {
+        formRef.current?.submit();
+        setPreviewReady(true);
+      }, 100);
+    }
+  }, [result?.modified_html]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -473,6 +487,7 @@ export default function Home() {
                 setAppState("idle");
                 setResult(null);
                 setErrorMsg("");
+                setPreviewReady(false);
               }}
               className="btn-secondary text-sm py-2"
             >
@@ -480,42 +495,36 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Side-by-side: Original vs Modified */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Original Page */}
-            <div className="w-full rounded-2xl overflow-hidden glass-card border-white/20 shadow-2xl relative" style={{ height: "70vh" }}>
-              <div className="absolute top-0 left-0 w-full h-8 bg-gray-900 border-b border-white/10 flex items-center px-4 gap-2 z-10">
-                <div className="w-3 h-3 rounded-full bg-red-500" />
-                <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                <div className="w-3 h-3 rounded-full bg-green-500" />
-                <div className="mx-auto flex-1 text-center text-xs text-gray-500 font-mono overflow-hidden whitespace-nowrap text-ellipsis px-10">
-                  {lpUrl} — Original
-                </div>
-              </div>
-              <iframe
-                src={lpUrl}
-                className="w-full h-full bg-white pt-8"
-                title="Original Page"
-              />
-            </div>
+          {/* Hidden form that POSTs modified HTML to our proxy, rendering it in the iframe */}
+          <form
+            ref={formRef}
+            method="POST"
+            action="/api/preview"
+            target="preview-frame"
+            style={{ display: "none" }}
+          >
+            <textarea name="html" value={result.modified_html} readOnly />
+          </form>
 
-            {/* Modified Page */}
-            <div className="w-full rounded-2xl overflow-hidden glass-card border-indigo-500/30 shadow-2xl relative" style={{ height: "70vh" }}>
-              <div className="absolute top-0 left-0 w-full h-8 bg-gray-900 border-b border-white/10 flex items-center px-4 gap-2 z-10">
-                <div className="w-3 h-3 rounded-full bg-red-500" />
-                <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                <div className="w-3 h-3 rounded-full bg-green-500" />
-                <div className="mx-auto flex-1 text-center text-xs text-indigo-400 font-mono overflow-hidden whitespace-nowrap text-ellipsis px-10">
-                  {lpUrl} — ✦ Personalized
-                </div>
+          <div className="w-full rounded-2xl overflow-hidden glass-card border-white/20 shadow-2xl relative" style={{ height: "75vh" }}>
+            <div className="absolute top-0 left-0 w-full h-8 bg-gray-900 border-b border-white/10 flex items-center px-4 gap-2 z-10">
+              <div className="w-3 h-3 rounded-full bg-red-500" />
+              <div className="w-3 h-3 rounded-full bg-yellow-500" />
+              <div className="w-3 h-3 rounded-full bg-green-500" />
+              <div className="mx-auto flex-1 text-center text-xs text-gray-500 font-mono overflow-hidden whitespace-nowrap text-ellipsis px-10">
+                {lpUrl} — Modified
               </div>
-              <iframe
-                srcDoc={result.modified_html}
-                sandbox="allow-scripts allow-same-origin allow-popups"
-                className="w-full h-full bg-white pt-8"
-                title="Personalized Result"
-              />
             </div>
+            {!previewReady && (
+              <div className="absolute inset-0 flex items-center justify-center pt-8 bg-gray-950/50 z-5">
+                <div className="text-gray-400 animate-pulse">Loading preview...</div>
+              </div>
+            )}
+            <iframe
+              name="preview-frame"
+              className="w-full h-full bg-white pt-8"
+              title="Personalized Result"
+            />
           </div>
         </div>
       )}

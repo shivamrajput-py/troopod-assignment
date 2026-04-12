@@ -44,9 +44,7 @@ function safeParseLLMJson(raw: string): Record<string, unknown> {
 // ─── Pipeline stages ────────────────────────────────
 async function scrapeLandingPage(url: string) {
   const res = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-    },
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36" },
     redirect: "follow",
   });
   if (!res.ok) throw new Error(`LP fetch failed: ${res.status}`);
@@ -59,7 +57,6 @@ async function scrapeLandingPage(url: string) {
 
   const h1s = [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)]
     .map((m) => m[1].replace(/<[^>]+>/g, "").trim()).filter(Boolean).slice(0, 3);
-
   const h2s = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)]
     .map((m) => m[1].replace(/<[^>]+>/g, "").trim()).filter(Boolean).slice(0, 5);
 
@@ -116,8 +113,7 @@ async function generateReplacements(lpElements: Record<string, unknown>, adInsig
 }
 
 // ─── Stitching ──────────────────────────────────────
-// KEEP all scripts and CSS intact. Only modify text content and inject
-// a CSS-only banner via <style> in <head> (zero DOM impact).
+// Keep ALL scripts and CSS intact. Only modify text and inject banner.
 function applyReplacements(rawHtml: string, replacements: Record<string, unknown>, baseUrl: string): string {
   let html = rawHtml;
 
@@ -126,60 +122,54 @@ function applyReplacements(rawHtml: string, replacements: Record<string, unknown
     html = html.replace(/(<head[^>]*>)/i, `$1\n<base href="${baseUrl}/">`);
   }
 
-  // Replace title (in <head>, safe)
+  // Safe head-only modifications
   if (replacements.new_title) {
     html = html.replace(/(<title[^>]*>)([\s\S]*?)(<\/title>)/i, `$1${replacements.new_title}$3`);
   }
-  // Replace meta description (in <head>, safe)
   if (replacements.new_meta_description) {
     html = html.replace(/(<meta[^>]*name=["']description["'][^>]*content=["'])([^"']*)/i, `$1${replacements.new_meta_description}`);
   }
 
-  // Inject banner via CSS pseudo-element only — ZERO DOM changes
-  const bannerStyle = `<style>body::before{content:"\\2726  Personalized by Troopod AI \\2014 Ad-matched Landing Page";display:block;background:linear-gradient(90deg,#6366f1,#a21caf);color:#fff;text-align:center;padding:10px 16px;font-size:13px;font-family:system-ui,sans-serif;position:sticky;top:0;z-index:99999;letter-spacing:.02em;font-weight:500}</style>`;
-  html = html.replace(/(<\/head>)/i, `${bannerStyle}\n$1`);
-
-  // Inject a DELAYED script that modifies text AFTER page fully loads + hydrates
-  const textMods: Array<{s: string; t: string}> = [];
-  if (replacements.new_h1) textMods.push({s: "h1", t: String(replacements.new_h1)});
-  if (replacements.new_h2) textMods.push({s: "h2", t: String(replacements.new_h2)});
-  if (replacements.new_hero_paragraph) textMods.push({s: "p_hero", t: String(replacements.new_hero_paragraph)});
-  if (replacements.new_cta_primary) textMods.push({s: "cta", t: String(replacements.new_cta_primary)});
-
-  const modsJson = JSON.stringify(textMods).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
-
-  const modScript = `<script>
-(function(){
-  var mods=${modsJson};
-  function go(){
-    for(var i=0;i<mods.length;i++){
-      var m=mods[i];
-      try{
-        if(m.s==='p_hero'){
-          var ps=document.querySelectorAll('p');
-          for(var j=0;j<ps.length;j++){if(ps[j].textContent.trim().length>30){ps[j].textContent=m.t;break;}}
-        }else if(m.s==='cta'){
-          var bs=document.querySelectorAll('a,button');
-          var kw=['get','start','try','buy','sign','join','book','free','demo','contact','learn','analyse','analyze'];
-          for(var j=0;j<bs.length;j++){var tx=bs[j].textContent.trim().toLowerCase();if(tx.length<60&&kw.some(function(k){return tx.indexOf(k)!==-1})){bs[j].textContent=m.t;break;}}
-        }else{
-          var el=document.querySelector(m.s);
-          if(el)el.textContent=m.t;
-        }
-      }catch(e){}
-    }
+  // Direct text replacements
+  if (replacements.new_h1) {
+    html = html.replace(/(<h1[^>]*>)([\s\S]*?)(<\/h1>)/i, `$1${replacements.new_h1}$3`);
   }
-  // Run after page is fully loaded + React hydrated
-  function schedule(){setTimeout(go,3000);}
-  if(document.readyState==='complete')schedule();
-  else window.addEventListener('load',schedule);
-})();
-<\/script>`;
+  if (replacements.new_h2) {
+    html = html.replace(/(<h2[^>]*>)([\s\S]*?)(<\/h2>)/i, `$1${replacements.new_h2}$3`);
+  }
 
-  if (/<\/body>/i.test(html)) {
-    html = html.replace(/(<\/body>)/i, `${modScript}\n$1`);
+  // Replace hero paragraph
+  if (replacements.new_hero_paragraph) {
+    let done = false;
+    html = html.replace(/(<p[^>]*>)([\s\S]*?)(<\/p>)/gi, (match, open: string, content: string, close: string) => {
+      if (!done && content.replace(/<[^>]+>/g, "").trim().length > 30) {
+        done = true;
+        return `${open}${replacements.new_hero_paragraph}${close}`;
+      }
+      return match;
+    });
+  }
+
+  // Replace CTA
+  if (replacements.new_cta_primary) {
+    const ctaKw = ["get","start","try","buy","sign","join","book","free","demo","contact","learn","analyse","analyze"];
+    let done = false;
+    html = html.replace(/(<(?:a|button)[^>]*>)([\s\S]*?)(<\/(?:a|button)>)/gi, (match, open: string, content: string, close: string) => {
+      const text = content.replace(/<[^>]+>/g, "").trim();
+      if (!done && text.length < 60 && ctaKw.some(kw => text.toLowerCase().includes(kw))) {
+        done = true;
+        return `${open}${replacements.new_cta_primary}${close}`;
+      }
+      return match;
+    });
+  }
+
+  // Inject banner
+  const banner = `<div style="background:linear-gradient(90deg,#6366f1,#a21caf);color:white;text-align:center;padding:10px 16px;font-size:13px;font-family:system-ui,sans-serif;position:sticky;top:0;z-index:99999;letter-spacing:0.02em;font-weight:500;">&#10022; Personalized by <strong>Troopod AI</strong> &mdash; Ad-matched Landing Page</div>`;
+  if (/<body[^>]*>/i.test(html)) {
+    html = html.replace(/(<body[^>]*>)/i, `$1\n${banner}`);
   } else {
-    html += modScript;
+    html = banner + "\n" + html;
   }
 
   return html;
@@ -198,7 +188,6 @@ export async function POST(request: NextRequest) {
     if (!lpUrl) return NextResponse.json({ error: "Missing lp_url" }, { status: 400 });
     if (!OPENROUTER_API_KEY) return NextResponse.json({ error: "OPENROUTER_API_KEY not configured." }, { status: 500 });
 
-    // Step 1+2: Parallel
     const [lpResult, adResult] = await Promise.allSettled([
       scrapeLandingPage(lpUrl),
       analyzeAdCreative(imageB64, imageUrl, vlmModel),
@@ -210,7 +199,6 @@ export async function POST(request: NextRequest) {
     const lpElements = lpResult.value;
     const adInsights = adResult.value;
 
-    // Step 3: Generate
     let replacements: Record<string, unknown>;
     try {
       replacements = await generateReplacements(lpElements, adInsights, llmModel);
@@ -218,14 +206,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Failed to generate replacements: ${e instanceof Error ? e.message : e}` }, { status: 500 });
     }
 
-    // Step 4: Stitch — keep ALL scripts/CSS, only inject CSS banner + delayed text mod script
     const modifiedHtml = applyReplacements(lpElements.raw_html, replacements, lpElements.base_url);
 
     return NextResponse.json({
       modified_html: modifiedHtml,
       changes_summary: replacements.changes_summary || [],
       ad_insights: adInsights,
-      lp_url: lpUrl,
       error: null,
     });
   } catch (e: unknown) {
