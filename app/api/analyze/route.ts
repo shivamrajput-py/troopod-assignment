@@ -277,34 +277,35 @@ export async function POST(request: NextRequest) {
     }
     if (!OPENROUTER_API_KEY) {
       return NextResponse.json(
-        { error: "OPENROUTER_API_KEY not configured." },
+        { error: "OPENROUTER_API_KEY not configured. Add it in Vercel Dashboard → Settings → Environment Variables." },
         { status: 500 }
       );
     }
 
-    // Step 1: Scrape LP
-    let lpElements: Awaited<ReturnType<typeof scrapeLandingPage>>;
-    try {
-      lpElements = await scrapeLandingPage(lpUrl);
-    } catch (e: unknown) {
+    // ── Step 1 + 2: Run LP scrape and Ad analysis IN PARALLEL ──
+    // These are independent — running them concurrently saves ~15-20s
+    const [lpResult, adResult] = await Promise.allSettled([
+      scrapeLandingPage(lpUrl),
+      analyzeAdCreative(imageB64, imageUrl, vlmModel),
+    ]);
+
+    if (lpResult.status === "rejected") {
       return NextResponse.json(
-        { error: `Failed to scrape LP: ${e instanceof Error ? e.message : e}` },
+        { error: `Failed to scrape LP: ${lpResult.reason}` },
         { status: 500 }
       );
     }
-
-    // Step 2: Analyze Ad Creative
-    let adInsights: Record<string, unknown>;
-    try {
-      adInsights = await analyzeAdCreative(imageB64, imageUrl, vlmModel);
-    } catch (e: unknown) {
+    if (adResult.status === "rejected") {
       return NextResponse.json(
-        { error: `Failed to analyze ad: ${e instanceof Error ? e.message : e}` },
+        { error: `Failed to analyze ad: ${adResult.reason}` },
         { status: 500 }
       );
     }
 
-    // Step 3: Generate replacements
+    const lpElements = lpResult.value;
+    const adInsights = adResult.value;
+
+    // ── Step 3: Generate replacements (needs both LP + Ad results) ──
     let replacements: Record<string, unknown>;
     try {
       replacements = await generateReplacements(lpElements, adInsights, llmModel);
@@ -315,7 +316,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Step 4: Apply replacements
+    // ── Step 4: Apply replacements (instant, no network call) ──
     let modifiedHtml: string;
     try {
       modifiedHtml = applyReplacements(
