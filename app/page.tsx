@@ -101,8 +101,8 @@ export default function Home() {
   const [adUrl, setAdUrl] = useState("");
   const [adBase64, setAdBase64] = useState<string | null>(null);
   const [lpUrl, setLpUrl] = useState("");
-  const [vlmModel, setVlmModel] = useState("qwen/qwen3.6-plus");
-  const [llmModel, setLlmModel] = useState("qwen/qwen3.6-plus");
+  const [vlmModel, setVlmModel] = useState("google/gemini-2.0-flash-001");
+  const [llmModel, setLlmModel] = useState("google/gemini-2.0-flash-001");
   const [result, setResult] = useState<ApiResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [steps, setSteps] = useState<PipelineStep[]>(INITIAL_STEPS);
