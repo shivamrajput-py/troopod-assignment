@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions";
-const DEFAULT_VLM = "openai/gpt-4o-mini";
-const DEFAULT_LLM = "openai/gpt-4o-mini";
+const DEFAULT_VLM = "qwen/qwen3.6-plus";
+const DEFAULT_LLM = "qwen/qwen3.6-plus";
 
 // ─── Helpers ────────────────────────────────────────
 async function openrouterPost(payload: Record<string, unknown>) {
