@@ -51,6 +51,70 @@ function safeParseLLMJson(raw: string): Record<string, unknown> {
   throw new Error(`Could not parse LLM JSON. Raw: ${text.slice(0, 200)}`);
 }
 
+// ─── CSS Inlining ───────────────────────────────────
+// Fetches all external stylesheets and inlines them as <style> tags.
+// This ensures CSS survives even when we strip <script> tags.
+async function inlineExternalCss(html: string, baseUrl: string): Promise<string> {
+  const cssEntries: Array<{ fullMatch: string; url: string }> = [];
+
+  // Match <link rel="stylesheet" href="..."> in both attribute orders
+  const linkRegex = /<link[^>]*>/gi;
+  let lm;
+  while ((lm = linkRegex.exec(html)) !== null) {
+    const tag = lm[0];
+    if (!/rel\s*=\s*["']stylesheet["']/i.test(tag)) continue;
+    const hrefMatch = tag.match(/href\s*=\s*["']([^"']+)["']/i);
+    if (hrefMatch) {
+      cssEntries.push({ fullMatch: tag, url: hrefMatch[1] });
+    }
+  }
+
+  // Fetch each CSS file in parallel (with timeout)
+  const fetches = cssEntries.map(async (entry) => {
+    let absUrl = entry.url;
+    if (absUrl.startsWith("//")) {
+      absUrl = "https:" + absUrl;
+    } else if (absUrl.startsWith("/")) {
+      absUrl = baseUrl + absUrl;
+    } else if (!absUrl.startsWith("http")) {
+      absUrl = baseUrl + "/" + absUrl;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(absUrl, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (!res.ok) return null;
+      let css = await res.text();
+
+      // Fix relative url() references inside CSS to be absolute
+      css = css.replace(
+        /url\(\s*['"]?(?!data:|https?:|\/\/)(\/?)([^'")\s]+)['"]?\s*\)/g,
+        (_match, slash: string, path: string) =>
+          `url(${baseUrl}${slash ? "/" : "/"}${path})`
+      );
+
+      return { fullMatch: entry.fullMatch, inlined: `<style>/* ${absUrl} */\n${css}</style>` };
+    } catch {
+      return null;
+    }
+  });
+
+  const results = await Promise.all(fetches);
+  for (const r of results) {
+    if (r) {
+      html = html.replace(r.fullMatch, r.inlined);
+    }
+  }
+
+  return html;
+}
+
 // ─── Pipeline stages ────────────────────────────────
 
 async function scrapeLandingPage(url: string) {
@@ -198,35 +262,36 @@ Rewrite LP elements to match the ad message. Return ONLY a JSON object with: new
   );
 }
 
-function applyReplacements(
+// ─── HTML Stitching ─────────────────────────────────
+// Strategy:
+//   1) Inline all external CSS (so styles survive without JS)
+//   2) Strip all <script> tags (prevents SPA hydration from blanking the page)
+//   3) Apply text replacements directly on the static HTML
+//   4) Add <base> tag for remaining asset URLs (images, fonts)
+//   5) Inject banner <div>
+async function applyReplacements(
   rawHtml: string,
   replacements: Record<string, unknown>,
   baseUrl: string
-) {
+): Promise<string> {
   let html = rawHtml;
 
-  // ── STEP 1: Strip ALL <script> tags ──
-  // Modern sites (Next.js, React, Vue) hydrate on load. When served via
-  // srcDoc iframe, hydration fails (CORS, origin mismatch) and React WIPES
-  // the server-rendered DOM — leaving blank sections.
-  // Removing scripts preserves the pre-rendered HTML exactly as-is.
+  // ── STEP 1: Inline all external CSS ──
+  // This fetches every <link rel="stylesheet"> and replaces it with <style>
+  // so that CSS is preserved even after we strip <script> tags
+  html = await inlineExternalCss(html, baseUrl);
+
+  // Also inline any <style> tags that use @import
+  // (some Next.js apps load CSS via @import in inline styles)
+
+  // ── STEP 2: Strip ALL <script> tags ──
+  // Modern SPAs (Next.js/React) hydrate on load. In a srcDoc iframe,
+  // hydration fails and React WIPES the server-rendered DOM.
+  // Removing scripts preserves the pre-rendered HTML + inlined CSS.
   html = html.replace(/<script[\s\S]*?<\/script>/gi, "");
-  // Also remove inline event handlers that might cause errors
-  html = html.replace(/\s+on\w+="[^"]*"/gi, "");
+  html = html.replace(/<script[^>]*\/>/gi, ""); // self-closing scripts
 
-  // ── STEP 2: Fix relative URLs ──
-  html = html.replace(
-    /(<(?:link|img|source|video|audio)[^>]*\s(?:href|src)=["'])(\/)/gi,
-    (_match: string, pre: string) => `${pre}${baseUrl}/`
-  );
-
-  // Fix CSS url() references
-  html = html.replace(
-    /url\(\s*['"]?\//g,
-    `url(${baseUrl}/`
-  );
-
-  // Add <base> tag for any remaining relative URLs
+  // ── STEP 3: Add <base> tag for remaining assets (images, fonts) ──
   if (!/<base\s/i.test(html)) {
     html = html.replace(
       /(<head[^>]*>)/i,
@@ -234,21 +299,7 @@ function applyReplacements(
     );
   }
 
-  // ── STEP 3: Apply text replacements directly ──
-  // Since we stripped scripts, there's no hydration to worry about.
-  // Direct regex replacement on the server-rendered HTML is safe.
-  if (replacements.new_h1) {
-    html = html.replace(
-      /(<h1[^>]*>)([\s\S]*?)(<\/h1>)/i,
-      `$1${replacements.new_h1}$3`
-    );
-  }
-  if (replacements.new_h2) {
-    html = html.replace(
-      /(<h2[^>]*>)([\s\S]*?)(<\/h2>)/i,
-      `$1${replacements.new_h2}$3`
-    );
-  }
+  // ── STEP 4: Apply text replacements ──
   if (replacements.new_title) {
     html = html.replace(
       /(<title[^>]*>)([\s\S]*?)(<\/title>)/i,
@@ -261,13 +312,25 @@ function applyReplacements(
       `$1${replacements.new_meta_description}`
     );
   }
+  if (replacements.new_h1) {
+    html = html.replace(
+      /(<h1[^>]*>)([\s\S]*?)(<\/h1>)/i,
+      `$1${replacements.new_h1}$3`
+    );
+  }
+  if (replacements.new_h2) {
+    html = html.replace(
+      /(<h2[^>]*>)([\s\S]*?)(<\/h2>)/i,
+      `$1${replacements.new_h2}$3`
+    );
+  }
 
-  // Replace hero paragraph (first long <p>)
+  // Replace hero paragraph
   if (replacements.new_hero_paragraph) {
     let replaced = false;
     html = html.replace(
       /(<p[^>]*>)([\s\S]*?)(<\/p>)/gi,
-      (match, open, content, close) => {
+      (match, open: string, content: string, close: string) => {
         if (!replaced && content.replace(/<[^>]+>/g, "").trim().length > 30) {
           replaced = true;
           return `${open}${replacements.new_hero_paragraph}${close}`;
@@ -277,13 +340,13 @@ function applyReplacements(
     );
   }
 
-  // Replace CTA button text
+  // Replace CTA
   if (replacements.new_cta_primary) {
     const ctaKw = ["get","start","try","buy","sign","join","book","free","demo","contact","learn","analyse","analyze"];
     let replaced = false;
     html = html.replace(
       /(<(?:a|button)[^>]*>)([\s\S]*?)(<\/(?:a|button)>)/gi,
-      (match, open, content, close) => {
+      (match, open: string, content: string, close: string) => {
         const text = content.replace(/<[^>]+>/g, "").trim();
         if (!replaced && text.length < 60 && ctaKw.some(kw => text.toLowerCase().includes(kw))) {
           replaced = true;
@@ -294,8 +357,7 @@ function applyReplacements(
     );
   }
 
-  // ── STEP 4: Inject banner ──
-  // Now safe to inject DOM since no JS will re-render
+  // ── STEP 5: Inject banner ──
   const banner = `<div style="background:linear-gradient(90deg,#6366f1,#a21caf);color:white;text-align:center;padding:10px 16px;font-size:13px;font-family:system-ui,sans-serif;position:sticky;top:0;z-index:99999;letter-spacing:0.02em;font-weight:500;">&#10022; Personalized by <strong>Troopod AI</strong> &mdash; Ad-matched Landing Page</div>`;
   if (/<body[^>]*>/i.test(html)) {
     html = html.replace(/(<body[^>]*>)/i, `$1\n${banner}`);
@@ -360,10 +422,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Step 4: Apply replacements ──
+    // ── Step 4: Apply replacements (includes CSS inlining + script stripping) ──
     let modifiedHtml: string;
     try {
-      modifiedHtml = applyReplacements(
+      modifiedHtml = await applyReplacements(
         lpElements.raw_html,
         replacements,
         lpElements.base_url
