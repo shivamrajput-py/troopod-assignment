@@ -101,8 +101,8 @@ export default function Home() {
   const [adUrl, setAdUrl] = useState("");
   const [adBase64, setAdBase64] = useState<string | null>(null);
   const [lpUrl, setLpUrl] = useState("");
-  const [vlmModel, setVlmModel] = useState("google/gemini-2.0-flash-001");
-  const [llmModel, setLlmModel] = useState("google/gemini-2.0-flash-001");
+  const [vlmModel, setVlmModel] = useState("google/gemini-3.1-flash-lite-preview");
+  const [llmModel, setLlmModel] = useState("google/gemini-3.1-flash-lite-preview");
   const [result, setResult] = useState<ApiResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [steps, setSteps] = useState<PipelineStep[]>(INITIAL_STEPS);
@@ -365,6 +365,10 @@ export default function Home() {
                   />
                 </div>
               </div>
+              <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                Use a stronger model (e.g. <span className="text-gray-400">google/gemini-2.5-flash</span> or <span className="text-gray-400">openai/gpt-4o</span>) for higher quality results
+              </p>
             </div>
           </div>
 

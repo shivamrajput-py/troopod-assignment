@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions";
-const DEFAULT_VLM = "google/gemini-2.0-flash-001";
-const DEFAULT_LLM = "google/gemini-2.0-flash-001";
+const DEFAULT_VLM = "google/gemini-3.1-flash-lite-preview";
+const DEFAULT_LLM = "google/gemini-3.1-flash-lite-preview";
 
 // ─── Helpers ────────────────────────────────────────
 async function openrouterPost(payload: Record<string, unknown>) {
@@ -16,7 +16,7 @@ async function openrouterPost(payload: Record<string, unknown>) {
     headers: {
       Authorization: `Bearer ${OPENROUTER_API_KEY}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://troopod-assignment.vercel.app",
+      "HTTP-Referer": "https://troopod-lp-personalizer.vercel.app",
       "X-Title": "Troopod AdPersonalizer",
     },
     body: JSON.stringify(payload),
@@ -30,7 +30,6 @@ async function openrouterPost(payload: Record<string, unknown>) {
 
 function safeParseLLMJson(raw: string): Record<string, unknown> {
   let text = raw.trim();
-  // strip markdown fences
   if (text.startsWith("```")) {
     const lines = text.split("\n");
     if (lines[0].startsWith("```")) lines.shift();
@@ -40,7 +39,6 @@ function safeParseLLMJson(raw: string): Record<string, unknown> {
   try {
     return JSON.parse(text);
   } catch {
-    // try to find first JSON object
     const m = text.match(/\{[\s\S]*\}/);
     if (m) {
       try {
@@ -207,13 +205,13 @@ function applyReplacements(
 ) {
   let html = rawHtml;
 
-  // Fix relative URLs
+  // Fix relative URLs for assets
   html = html.replace(
-    /(<(?:link|script|img|source|video|audio)[^>]*\s(?:href|src)=["'])(\/)([^"'>])/gi,
-    (_, pre, slash, rest) => `${pre}${baseUrl}/${rest}`
+    /(<(?:link|script|img|source|video|audio)[^>]*\s(?:href|src)=["'])(\/)/gi,
+    (_match: string, pre: string) => `${pre}${baseUrl}/`
   );
 
-  // Add <base> tag
+  // Add <base> tag so all relative URLs resolve correctly
   if (!/<base\s/i.test(html)) {
     html = html.replace(
       /(<head[^>]*>)/i,
@@ -221,28 +219,13 @@ function applyReplacements(
     );
   }
 
-  // Replace first H1 text
-  if (replacements.new_h1) {
-    html = html.replace(
-      /(<h1[^>]*>)([\s\S]*?)(<\/h1>)/i,
-      `$1${replacements.new_h1}$3`
-    );
-  }
-  // Replace first H2 text
-  if (replacements.new_h2) {
-    html = html.replace(
-      /(<h2[^>]*>)([\s\S]*?)(<\/h2>)/i,
-      `$1${replacements.new_h2}$3`
-    );
-  }
-  // Replace title
+  // Replace <title> and meta in <head> — safe, doesn't affect React root
   if (replacements.new_title) {
     html = html.replace(
       /(<title[^>]*>)([\s\S]*?)(<\/title>)/i,
       `$1${replacements.new_title}$3`
     );
   }
-  // Replace meta description
   if (replacements.new_meta_description) {
     html = html.replace(
       /(<meta[^>]*name=["']description["'][^>]*content=["'])([^"']*)/i,
@@ -250,12 +233,103 @@ function applyReplacements(
     );
   }
 
-  // Inject banner
-  const banner = `<div style="background:linear-gradient(90deg,#6366f1,#a21caf);color:white;text-align:center;padding:10px 16px;font-size:13px;font-family:system-ui,sans-serif;position:sticky;top:0;z-index:99999;letter-spacing:0.02em;">✦ Personalized by <strong>Troopod AI</strong> — Ad-matched Landing Page</div>`;
-  if (/<body[^>]*>/i.test(html)) {
-    html = html.replace(/(<body[^>]*>)/i, `$1\n${banner}`);
+  // ── NON-INVASIVE INJECTION ──
+  // We do NOT modify DOM elements directly because that breaks React/Next.js
+  // hydration (causes blank hero sections). Instead we inject:
+  // 1) CSS ::before pseudo-element for the banner (zero DOM impact)
+  // 2) A post-load <script> that modifies text AFTER React hydration completes
+
+  const bannerCSS = `
+    body::before {
+      content: "\\2726  Personalized by Troopod AI \\2014 Ad-matched Landing Page";
+      display: block;
+      background: linear-gradient(90deg, #6366f1, #a21caf);
+      color: white;
+      text-align: center;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-family: system-ui, -apple-system, sans-serif;
+      position: sticky;
+      top: 0;
+      z-index: 99999;
+      letter-spacing: 0.02em;
+      font-weight: 500;
+    }
+  `;
+
+  // Build post-hydration replacement entries
+  const textReplacements: Array<{ selector: string; text: string }> = [];
+  if (replacements.new_h1) {
+    textReplacements.push({ selector: "h1", text: String(replacements.new_h1) });
+  }
+  if (replacements.new_h2) {
+    textReplacements.push({ selector: "h2", text: String(replacements.new_h2) });
+  }
+  if (replacements.new_hero_paragraph) {
+    textReplacements.push({ selector: "__hero_p__", text: String(replacements.new_hero_paragraph) });
+  }
+  if (replacements.new_cta_primary) {
+    textReplacements.push({ selector: "__cta__", text: String(replacements.new_cta_primary) });
+  }
+
+  const replacementsJson = JSON.stringify(textReplacements).replace(/</g, "\\u003c");
+
+  const injectionScript = `
+    <script>
+      (function() {
+        function applyChanges() {
+          var reps = ${replacementsJson};
+          for (var i = 0; i < reps.length; i++) {
+            var r = reps[i];
+            try {
+              if (r.selector === '__hero_p__') {
+                var ps = document.querySelectorAll('p');
+                for (var j = 0; j < ps.length; j++) {
+                  if (ps[j].textContent.trim().length > 30) {
+                    ps[j].textContent = r.text;
+                    break;
+                  }
+                }
+              } else if (r.selector === '__cta__') {
+                var btns = document.querySelectorAll('a, button');
+                var kw = ['get','start','try','buy','sign','join','book','free','demo','contact','learn','analyse','analyze'];
+                for (var j = 0; j < btns.length; j++) {
+                  var txt = btns[j].textContent.trim().toLowerCase();
+                  if (txt.length < 60 && kw.some(function(k) { return txt.indexOf(k) !== -1; })) {
+                    btns[j].textContent = r.text;
+                    break;
+                  }
+                }
+              } else {
+                var el = document.querySelector(r.selector);
+                if (el) el.textContent = r.text;
+              }
+            } catch(e) { /* skip failed replacement */ }
+          }
+        }
+        // Wait for React hydration to finish before modifying text
+        if (document.readyState === 'complete') {
+          setTimeout(applyChanges, 2000);
+        } else {
+          window.addEventListener('load', function() {
+            setTimeout(applyChanges, 2000);
+          });
+        }
+      })();
+    </script>
+  `;
+
+  // Inject CSS into <head> — no DOM change, banner via pseudo-element
+  html = html.replace(
+    /(<\/head>)/i,
+    `<style>${bannerCSS}</style>\n$1`
+  );
+
+  // Inject script before </body> — runs after hydration
+  if (/<\/body>/i.test(html)) {
+    html = html.replace(/(<\/body>)/i, `${injectionScript}\n$1`);
   } else {
-    html = banner + "\n" + html;
+    html += injectionScript;
   }
 
   return html;
@@ -277,13 +351,12 @@ export async function POST(request: NextRequest) {
     }
     if (!OPENROUTER_API_KEY) {
       return NextResponse.json(
-        { error: "OPENROUTER_API_KEY not configured. Add it in Vercel Dashboard → Settings → Environment Variables." },
+        { error: "OPENROUTER_API_KEY not configured. Add it in Vercel Dashboard > Settings > Environment Variables." },
         { status: 500 }
       );
     }
 
     // ── Step 1 + 2: Run LP scrape and Ad analysis IN PARALLEL ──
-    // These are independent — running them concurrently saves ~15-20s
     const [lpResult, adResult] = await Promise.allSettled([
       scrapeLandingPage(lpUrl),
       analyzeAdCreative(imageB64, imageUrl, vlmModel),
@@ -305,7 +378,7 @@ export async function POST(request: NextRequest) {
     const lpElements = lpResult.value;
     const adInsights = adResult.value;
 
-    // ── Step 3: Generate replacements (needs both LP + Ad results) ──
+    // ── Step 3: Generate replacements ──
     let replacements: Record<string, unknown>;
     try {
       replacements = await generateReplacements(lpElements, adInsights, llmModel);
