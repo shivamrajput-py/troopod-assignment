@@ -225,14 +225,18 @@ export default function Home() {
             try {
               const data = JSON.parse(dataStr);
               if (data.status === 'error') {
-                throw new Error(data.message || "Pipeline error");
+                // We set the state and stop the stream immediately
+                setErrorMsg(data.message || "Pipeline error");
+                setAppState("error");
+                setSteps(prev => prev.map(s => s.status === "active" ? { ...s, status: "error" as const } : s));
+                return; // Exit the submit handler early
               }
               if (data.step) {
                 setSteps(prev => {
                    const next = [...prev];
                    const stepIdx = next.findIndex(s => s.id === data.step);
                    if (stepIdx !== -1) {
-                        for(let i=0; i<stepIdx; i++) next[i].status = "done";
+                        for(let i=0; i<stepIdx; i++) if(next[i].status !== "error") next[i].status = "done";
                         next[stepIdx].status = "active";
                    }
                    return next;
@@ -242,8 +246,7 @@ export default function Home() {
                 finalData = data;
               }
             } catch (e) {
-                // Not a JSON payload or parsing failed. Note: we wait for '\n\n' so chunks shouldn't be ripped unless python generated invalid JSON
-                console.error("JSON parse error on SSE:", e);
+                console.error("Non-JSON or malformed SSE data:", e);
             }
           }
         }
