@@ -11,37 +11,62 @@ interface PipelineStep {
   status: "pending" | "active" | "done" | "error";
 }
 
+interface ChangeRecord {
+  element: string;
+  original: string | null;
+  updated: string;
+}
+
+interface AdData {
+  headline?: string;
+  offer?: string;
+  tone?: string;
+  target_audience?: string;
+  key_promise?: string;
+}
+
 interface ApiResult {
   modified_html: string;
-  changes_summary: string[];
-  ad_insights: Record<string, string>;
-  lp_url?: string;
+  changes_summary: ChangeRecord[];
+  ad_insights: AdData;
   error?: string;
 }
 
 const INITIAL_STEPS: PipelineStep[] = [
   {
-    id: "scrape_lp",
-    label: "Scraping Landing Page",
-    description: "Extracting content structure, headings, CTAs, and raw HTML from the target URL",
+    id: "fetch_lp",
+    label: "Loading Landing Page",
+    description: "Fetching target URL and diagnosing SPA rendering requirements",
     status: "pending",
   },
   {
-    id: "analyze_ad",
+    id: "ad_analyzer",
     label: "Analyzing Ad Creative",
-    description: "Using Vision LLM to extract messaging, tone, offer, and target audience from the ad",
+    description: "Extracting messaging, tone, offer, and target audience",
     status: "pending",
   },
   {
-    id: "generate",
-    label: "Generating Replacements",
-    description: "CRO agent mapping ad insights to landing page elements for surgical copy changes",
+    id: "hero_extractor",
+    label: "Extracting Hero Section",
+    description: "Surgically isolating the above-the-fold hero content",
+    status: "pending",
+  },
+  {
+    id: "hero_enhance",
+    label: "Enhancing Copy",
+    description: "Aligning text based on CRO principles",
     status: "pending",
   },
   {
     id: "stitch",
-    label: "Stitching Modified Page",
-    description: "Surgically replacing text nodes in original HTML while preserving all layout and styles",
+    label: "Stitching & Validating",
+    description: "Re-inserting enhanced block into inert HTML and structural validation",
+    status: "pending",
+  },
+  {
+    id: "finalize",
+    label: "Finalizing Output",
+    description: "Preparing live preview rendering",
     status: "pending",
   },
 ];
@@ -49,8 +74,8 @@ const INITIAL_STEPS: PipelineStep[] = [
 function StepIcon({ status }: { status: PipelineStep["status"] }) {
   if (status === "done") {
     return (
-      <div className="step-icon step-icon--done">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-white text-black">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
           <path d="M5 13l4 4L19 7" />
         </svg>
       </div>
@@ -58,37 +83,37 @@ function StepIcon({ status }: { status: PipelineStep["status"] }) {
   }
   if (status === "active") {
     return (
-      <div className="step-icon step-icon--active">
-        <div className="spinner-sm" />
+      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-800 border border-gray-600">
+        <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
       </div>
     );
   }
   if (status === "error") {
     return (
-      <div className="step-icon step-icon--error">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-900 border border-red-500 text-white">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 6L6 18M6 6l12 12" />
         </svg>
       </div>
     );
   }
-  return <div className="step-icon step-icon--pending" />;
+  return <div className="flex items-center justify-center w-6 h-6 rounded-full bg-black border border-gray-700" />;
 }
 
 function PipelineProgress({ steps }: { steps: PipelineStep[] }) {
   return (
-    <div className="pipeline-tracker">
+    <div className="space-y-4">
       {steps.map((step, i) => (
-        <div key={step.id} className={`pipeline-step pipeline-step--${step.status}`}>
-          <div className="pipeline-step__connector">
+        <div key={step.id} className="relative flex gap-4 overflow-hidden">
+          {i < steps.length - 1 && (
+            <div className={`absolute left-3 top-6 bottom-[-1rem] w-[1px] ${step.status === "done" ? "bg-gray-400" : "bg-gray-800"}`} />
+          )}
+          <div className="z-10 mt-1">
             <StepIcon status={step.status} />
-            {i < steps.length - 1 && (
-              <div className={`pipeline-step__line ${step.status === "done" ? "pipeline-step__line--done" : ""}`} />
-            )}
           </div>
-          <div className="pipeline-step__content">
-            <div className="pipeline-step__label">{step.label}</div>
-            <div className="pipeline-step__desc">{step.description}</div>
+          <div className={`flex-1 ${step.status === "pending" ? "opacity-40" : "opacity-100"} transition-opacity duration-300`}>
+            <div className="text-sm font-medium text-white tracking-wide">{step.label}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{step.description}</div>
           </div>
         </div>
       ))}
@@ -100,7 +125,8 @@ export default function Home() {
   const [appState, setAppState] = useState<AppState>("idle");
   const [adMode, setAdMode] = useState<"url" | "upload">("upload");
   const [adUrl, setAdUrl] = useState("");
-  const [adBase64, setAdBase64] = useState<string | null>(null);
+  const [adFile, setAdFile] = useState<File | null>(null);
+  const [adBase64, setAdBase64] = useState<string | null>(null); // For preview only
   const [lpUrl, setLpUrl] = useState("");
   const [vlmModel, setVlmModel] = useState("google/gemini-3.1-flash-lite-preview");
   const [llmModel, setLlmModel] = useState("google/gemini-3.1-flash-lite-preview");
@@ -112,11 +138,9 @@ export default function Home() {
   const formRef = useRef<HTMLFormElement>(null);
   const [previewReady, setPreviewReady] = useState(false);
 
-  // When result is ready, submit the modified HTML to the preview proxy
   useEffect(() => {
     if (result?.modified_html && formRef.current) {
       setPreviewReady(false);
-      // Small delay to ensure the textarea value is set
       setTimeout(() => {
         formRef.current?.submit();
         setPreviewReady(true);
@@ -127,6 +151,7 @@ export default function Home() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setAdFile(file);
     const reader = new FileReader();
     reader.onload = (event) => setAdBase64(event.target?.result as string);
     reader.readAsDataURL(file);
@@ -135,14 +160,8 @@ export default function Home() {
   const isFormValid = () => {
     if (!lpUrl.trim()) return false;
     if (adMode === "url" && !adUrl.trim()) return false;
-    if (adMode === "upload" && !adBase64) return false;
+    if (adMode === "upload" && !adFile) return false;
     return true;
-  };
-
-  const updateStep = (stepId: string, status: PipelineStep["status"]) => {
-    setSteps((prev) =>
-      prev.map((s) => (s.id === stepId ? { ...s, status } : s))
-    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -155,77 +174,95 @@ export default function Home() {
     setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "pending" as const })));
     setElapsedTime(0);
 
-    // Start timer
     const startTime = Date.now();
     timerRef.current = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
     try {
-      // Simulate step-by-step progress with timeouts
-      // (The actual API call is a single request, but we animate the steps)
-      updateStep("scrape_lp", "active");
-
-      const payload: Record<string, unknown> = {
-        lp_url: lpUrl.trim(),
-        vlm_model: vlmModel.trim() || undefined,
-        llm_model: llmModel.trim() || undefined,
-      };
+      const formData = new FormData();
+      formData.append("lp_url", lpUrl.trim());
+      formData.append("vlm_model", vlmModel.trim());
+      formData.append("llm_model", llmModel.trim());
+      
       if (adMode === "url") {
-        payload.ad_image_url = adUrl.trim();
-      } else {
-        payload.ad_image_b64 = adBase64;
+        formData.append("ad_url", adUrl.trim());
+      } else if (adFile) {
+        formData.append("ad_image", adFile);
       }
 
-      // Animate steps on a rough timeline while the real request runs
-      const stepTimers = [
-        setTimeout(() => {
-          updateStep("scrape_lp", "done");
-          updateStep("analyze_ad", "active");
-        }, 3000),
-        setTimeout(() => {
-          updateStep("analyze_ad", "done");
-          updateStep("generate", "active");
-        }, 8000),
-        setTimeout(() => {
-          updateStep("generate", "done");
-          updateStep("stitch", "active");
-        }, 15000),
-      ];
-
-      const res = await fetch("/api/analyze", {
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/personalize`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: formData,
       });
 
-      // Clear animation timers
-      stepTimers.forEach(clearTimeout);
-
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        const text = await res.text();
-        throw new Error(`Server returned non-JSON (${res.status}): ${text.slice(0, 150)}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Server Error (${res.status}): ${txt}`);
       }
 
-      const data = await res.json();
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error("No readable stream from server");
 
-      if (!res.ok || data.error) {
-        throw new Error(data.error || `Server error: ${res.status}`);
+      let finalData = null;
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        
+        let newlineIdx;
+        while ((newlineIdx = buffer.indexOf('\n\n')) >= 0) {
+          const eventString = buffer.slice(0, newlineIdx).trim();
+          buffer = buffer.slice(newlineIdx + 2);
+          
+          if (eventString.startsWith('data: ')) {
+            const dataStr = eventString.slice(6).trim();
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.status === 'error') {
+                throw new Error(data.message || "Pipeline error");
+              }
+              if (data.step) {
+                setSteps(prev => {
+                   const next = [...prev];
+                   const stepIdx = next.findIndex(s => s.id === data.step);
+                   if (stepIdx !== -1) {
+                        for(let i=0; i<stepIdx; i++) next[i].status = "done";
+                        next[stepIdx].status = "active";
+                   }
+                   return next;
+                });
+              }
+              if (data.status === 'success') {
+                finalData = data;
+              }
+            } catch (e) {
+                // Not a JSON payload or parsing failed. Note: we wait for '\n\n' so chunks shouldn't be ripped unless python generated invalid JSON
+                console.error("JSON parse error on SSE:", e);
+            }
+          }
+        }
       }
 
-      // Mark all steps done
+      if (!finalData) throw new Error("Stream ended without reaching final output");
+
       setSteps((prev) => prev.map((s) => ({ ...s, status: "done" as const })));
-
-      // Small delay so user sees all-green before result
       await new Promise((r) => setTimeout(r, 600));
 
-      setResult(data);
+      setResult({
+          modified_html: finalData.personalizedHtml,
+          changes_summary: finalData.changeSummary || [],
+          ad_insights: finalData.adData || {}
+      });
       setAppState("success");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "An unexpected error occurred.";
       setErrorMsg(message);
-      // Mark current active step as error
       setSteps((prev) =>
         prev.map((s) => (s.status === "active" ? { ...s, status: "error" as const } : s))
       );
@@ -242,33 +279,42 @@ export default function Home() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-start min-h-screen pt-16 pb-16 px-4">
+    <div className="flex flex-col items-center justify-start min-h-screen pt-16 pb-16 px-4 bg-black text-gray-200 selection:bg-white selection:text-black font-sans">
+      
       {/* Header */}
-      <div className="text-center mb-10 max-w-2xl mx-auto space-y-4">
-        <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-4 animate-fade-in text-sm font-medium">
-          <span className="flex h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
-          AI-Powered Personalization
-        </div>
-        <h1 className="text-5xl md:text-6xl font-display font-bold tracking-tight">
-          Ad<span className="text-gradient">Personalizer</span>
+      <div className="text-center mb-16 max-w-xl mx-auto space-y-4">
+        <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-white mb-4">
+          Ad<span className="opacity-40">Personalizer</span>
         </h1>
-        <p className="text-gray-400 text-lg md:text-xl">
-          Instantly reshape your landing page to match the exact messaging and tone of your ad creative.
+        <p className="text-gray-500 text-sm md:text-base leading-relaxed max-w-md mx-auto">
+          Synchronize landing page hero sections with advertising intent. Slick, robust, inert static previews.
         </p>
+        
+        <div className="text-gray-400 text-xs md:text-sm max-w-lg mx-auto mt-6 p-4 border border-gray-800 bg-[#0a0a0a] text-left space-y-2">
+            <p>
+              <span className="text-gray-500 mr-2">⚡</span> 
+              Using a better and fast model gives better output.
+            </p>
+            <p>
+              <span className="text-gray-500 mr-2">🌐</span> 
+              Works with most of the websites, but faces challenges with websites having complex DOM.
+            </p>
+            <p>
+              <span className="text-gray-500 mr-2">📖</span> 
+              <a href="https://docs.google.com/document/d/1_y5762-6zBniegmQniDITzSuIG48m0rWlkaEAfAmY_M/edit?usp=sharing" target="_blank" rel="noreferrer" className="text-gray-300 hover:text-white underline underline-offset-4 decoration-gray-700 hover:decoration-white transition-colors">
+                Get the idea of the architecture
+              </a>
+            </p>
+        </div>
       </div>
 
       {/* ─── Processing State ─── */}
       {appState === "processing" && (
-        <div className="w-full max-w-2xl animate-fade-in">
-          <div className="glass-card rounded-3xl p-8">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <div className="spinner" />
-                Pipeline Running
-              </h2>
-              <span className="text-sm text-gray-400 font-mono tabular-nums">
-                {formatTime(elapsedTime)}
-              </span>
+        <div className="w-full max-w-md animate-fade-in mb-10">
+          <div className="p-8 rounded-none border border-gray-800 bg-[#0a0a0a]">
+            <div className="flex items-center justify-between mb-8 pb-4 border-b border-gray-800">
+              <h2 className="text-white text-sm font-semibold uppercase tracking-wider">Processing</h2>
+              <span className="text-xs text-gray-500 font-mono">{formatTime(elapsedTime)} logs</span>
             </div>
             <PipelineProgress steps={steps} />
           </div>
@@ -279,133 +325,73 @@ export default function Home() {
       {(appState === "idle" || appState === "error") && (
         <form
           onSubmit={handleSubmit}
-          className="glass-card rounded-3xl p-8 w-full max-w-3xl transition-all duration-300"
+          className="w-full max-w-xl transition-all duration-300"
         >
-          <div className="space-y-8">
-            {/* Step 1: Ad Creative */}
-            <div>
+          <div className="space-y-6">
+            
+            <div className="p-6 border border-gray-800 bg-[#0a0a0a]">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold">1. Ad Creative</h2>
-                <div className="flex gap-2 p-1 bg-black/40 rounded-lg border border-white/5">
-                  <button
-                    type="button"
-                    onClick={() => setAdMode("url")}
-                    className={`px-3 py-1.5 text-sm rounded-md transition-all ${
-                      adMode === "url"
-                        ? "bg-white/10 text-white"
-                        : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    Image URL
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAdMode("upload")}
-                    className={`px-3 py-1.5 text-sm rounded-md transition-all ${
-                      adMode === "upload"
-                        ? "bg-white/10 text-white"
-                        : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    Upload File
-                  </button>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-white">I. Ad Creative</h2>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setAdMode("url")} className={`px-2 py-1 text-xs uppercase tracking-widest ${adMode === "url" ? "text-white border-b border-white" : "text-gray-600 hover:text-gray-400"}`}>Link</button>
+                  <button type="button" onClick={() => setAdMode("upload")} className={`px-2 py-1 text-xs uppercase tracking-widest ${adMode === "upload" ? "text-white border-b border-white" : "text-gray-600 hover:text-gray-400"}`}>File</button>
                 </div>
               </div>
-
+              
               {adMode === "url" ? (
                 <input
                   type="url"
-                  placeholder="https://example.com/ad-image.jpg"
-                  className="glass-input w-full"
+                  placeholder="https://..."
+                  className="w-full bg-black border border-gray-800 text-white px-4 py-3 text-sm focus:outline-none focus:border-gray-500 transition-colors"
                   value={adUrl}
                   onChange={(e) => setAdUrl(e.target.value)}
                 />
               ) : (
-                <div className="flex items-center justify-center w-full">
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer border-gray-600 bg-black/20 hover:bg-black/40 hover:border-indigo-500/50 transition-all">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <svg className="w-8 h-8 mb-3 text-gray-400" fill="none" viewBox="0 0 20 16" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2" />
-                      </svg>
-                      <p className="mb-2 text-sm text-gray-400">
-                        <span className="font-semibold text-white">Click to upload</span> or drag and drop
-                      </p>
-                    </div>
+                <div className="relative">
+                  <label className="flex flex-col items-center justify-center w-full h-24 border border-dashed border-gray-700 bg-black cursor-pointer hover:border-gray-500 transition-colors">
+                    <span className="text-xs text-gray-400 uppercase tracking-widest">{adFile ? adFile.name : "Select Image"}</span>
                     <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
                   </label>
                 </div>
               )}
-              {adMode === "upload" && adBase64 && (
-                <div className="mt-3 text-sm text-green-400 flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Image uploaded successfully
-                </div>
-              )}
             </div>
 
-            {/* Step 2: LP URL */}
-            <div>
-              <h2 className="text-xl font-semibold mb-4">2. Destination Landing Page URL</h2>
+            <div className="p-6 border border-gray-800 bg-[#0a0a0a]">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-white mb-4">II. Landing Page</h2>
               <input
                 type="url"
-                placeholder="https://yourwebsite.com"
-                className="glass-input w-full"
+                placeholder="https://..."
+                className="w-full bg-black border border-gray-800 text-white px-4 py-3 text-sm focus:outline-none focus:border-gray-500 transition-colors"
                 value={lpUrl}
                 onChange={(e) => setLpUrl(e.target.value)}
               />
             </div>
 
-            {/* Step 3: Model Config */}
-            <div>
-              <h2 className="text-xl font-semibold mb-4">3. AI Configuration</h2>
+            <div className="p-6 border border-gray-800 bg-[#0a0a0a]">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-white mb-4">III. Models</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">VLM Model (Ad Vision)</label>
-                  <input
-                    type="text"
-                    className="glass-input w-full"
-                    value={vlmModel}
-                    onChange={(e) => setVlmModel(e.target.value)}
-                  />
+                  <label className="block text-xs uppercase tracking-widest text-gray-600 mb-2">Vision</label>
+                  <input type="text" className="w-full bg-black border border-gray-800 text-white px-3 py-2 text-xs focus:outline-none focus:border-gray-500" value={vlmModel} onChange={(e) => setVlmModel(e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">LLM Model (Text Output)</label>
-                  <input
-                    type="text"
-                    className="glass-input w-full"
-                    value={llmModel}
-                    onChange={(e) => setLlmModel(e.target.value)}
-                  />
+                  <label className="block text-xs uppercase tracking-widest text-gray-600 mb-2">Text</label>
+                  <input type="text" className="w-full bg-black border border-gray-800 text-white px-3 py-2 text-xs focus:outline-none focus:border-gray-500" value={llmModel} onChange={(e) => setLlmModel(e.target.value)} />
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-3 flex items-center gap-1.5">
-                <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                Use a stronger model (e.g. <span className="text-gray-400">google/gemini-2.5-flash</span> or <span className="text-gray-400">openai/gpt-4o</span>) for higher quality results
-              </p>
             </div>
           </div>
 
           {errorMsg && (
-            <div className="mt-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex gap-3 items-start">
-              <svg className="w-5 h-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <div>
-                <p className="font-medium mb-1">Pipeline Error</p>
-                <p className="text-red-400/80">{errorMsg}</p>
-              </div>
+            <div className="mt-6 p-4 border border-gray-800 bg-black text-red-400 text-sm flex gap-3 items-start">
+              <span className="font-mono text-xs uppercase pt-0.5">ERR</span>
+              <p className="text-gray-400">{errorMsg}</p>
             </div>
           )}
 
-          <div className="mt-10 flex justify-center">
-            <button
-              type="submit"
-              disabled={!isFormValid()}
-              className="btn-primary w-full md:w-auto min-w-[260px] flex items-center justify-center gap-3 text-base py-3.5"
-            >
-              ✦ Personalize Page
+          <div className="mt-8">
+            <button type="submit" disabled={!isFormValid()} className="w-full bg-white text-black py-4 text-sm font-semibold uppercase tracking-widest hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              Initialize
             </button>
           </div>
         </form>
@@ -413,118 +399,61 @@ export default function Home() {
 
       {/* ─── Result Area ─── */}
       {appState === "success" && result && (
-        <div className="w-full max-w-[1400px] animate-fade-in">
+        <div className="w-full max-w-[1600px] animate-fade-in font-sans">
+          
+          <div className="flex items-center justify-between mb-8 pb-4 border-b border-gray-800 text-white">
+             <div className="text-sm uppercase tracking-widest opacity-50">{lpUrl}</div>
+             <button onClick={() => { setAppState("idle"); setResult(null); setErrorMsg(""); setPreviewReady(false); }} className="text-xs uppercase tracking-widest hover:opacity-70 transition-opacity">
+               [ Reset ]
+             </button>
+          </div>
+
           <div className="flex flex-col lg:flex-row gap-6 mb-8">
-            {/* Ad Insights Card */}
-            <div className="glass-card flex-1 rounded-2xl p-6 border-indigo-500/30">
-              <h3 className="text-lg font-semibold text-indigo-400 mb-4 flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                Ad Insights Extracted
-              </h3>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-                {result.ad_insights.headline && (
-                  <div className="col-span-2">
-                    <span className="text-gray-500 block mb-1">Headline:</span>
-                    <span className="font-medium">{result.ad_insights.headline}</span>
-                  </div>
-                )}
-                {result.ad_insights.offer && (
-                  <div>
-                    <span className="text-gray-500 block mb-1">Detected Offer:</span>
-                    <span className="font-medium">{result.ad_insights.offer}</span>
-                  </div>
-                )}
-                {result.ad_insights.tone && (
-                  <div>
-                    <span className="text-gray-500 block mb-1">Tone:</span>
-                    <span className="font-medium capitalize">{result.ad_insights.tone}</span>
-                  </div>
-                )}
-                {result.ad_insights.key_benefit && (
-                  <div className="col-span-2">
-                    <span className="text-gray-500 block mb-1">Key Benefit:</span>
-                    <span className="font-medium">{result.ad_insights.key_benefit}</span>
-                  </div>
-                )}
-                {result.ad_insights.target_audience && (
-                  <div className="col-span-2">
-                    <span className="text-gray-500 block mb-1">Target Audience:</span>
-                    <span className="font-medium">{result.ad_insights.target_audience}</span>
-                  </div>
-                )}
+            <div className="flex-1 p-6 border border-gray-800 bg-[#0a0a0a]">
+              <h3 className="text-sm uppercase tracking-wider text-white mb-6">Execution Signal</h3>
+              <div className="grid grid-cols-2 gap-4 text-sm text-gray-400">
+                {result.ad_insights.headline && <div className="col-span-2"><span className="uppercase text-xs opacity-50 block mb-1">Headline</span><span className="text-white">{result.ad_insights.headline}</span></div>}
+                {result.ad_insights.offer && <div><span className="uppercase text-xs opacity-50 block mb-1">Offer</span><span className="text-white">{result.ad_insights.offer}</span></div>}
+                {result.ad_insights.tone && <div><span className="uppercase text-xs opacity-50 block mb-1">Tone</span><span className="text-white capitalize">{result.ad_insights.tone}</span></div>}
               </div>
             </div>
 
-            {/* Changes Card */}
-            <div className="glass-card flex-1 rounded-2xl p-6 border-fuchsia-500/30">
-              <h3 className="text-lg font-semibold text-fuchsia-400 mb-4 flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Surgical Changes Applied
-              </h3>
-              <ul className="space-y-2 text-sm">
-                {Array.isArray(result.changes_summary) && result.changes_summary.length > 0 ? (
-                  result.changes_summary.map((change: string, i: number) => (
-                    <li key={i} className="flex gap-2 items-start">
-                      <span className="text-fuchsia-400 mt-0.5">✦</span>
-                      <span className="text-gray-200">{change}</span>
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-gray-400">Changes applied to landing page elements.</li>
-                )}
+            <div className="flex-1 p-6 border border-gray-800 bg-[#0a0a0a]">
+              <h3 className="text-sm uppercase tracking-wider text-white mb-6">DOM Modifications</h3>
+              <ul className="space-y-3 text-sm text-gray-400">
+                {result.changes_summary.map((change, i) => (
+                  <li key={i} className="flex flex-col">
+                    <span className="uppercase text-xs opacity-50 mb-1">{change.element}</span>
+                    <span className="text-white">{change.updated}</span>
+                  </li>
+                ))}
               </ul>
             </div>
           </div>
 
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-display font-semibold">Personalized Live Preview</h2>
-            <button
-              onClick={() => {
-                setAppState("idle");
-                setResult(null);
-                setErrorMsg("");
-                setPreviewReady(false);
-              }}
-              className="btn-secondary text-sm py-2"
-            >
-              ← New Generation
-            </button>
-          </div>
-
-          {/* Hidden form that POSTs modified HTML to our proxy, rendering it in the iframe */}
-          <form
-            ref={formRef}
-            method="POST"
-            action="/api/preview"
-            target="preview-frame"
-            style={{ display: "none" }}
-          >
+          <form ref={formRef} method="POST" action="/api/preview" target="preview-frame" style={{ display: "none" }}>
             <textarea name="html" value={result.modified_html} readOnly />
           </form>
 
-          <div className="w-full rounded-2xl overflow-hidden glass-card border-white/20 shadow-2xl relative" style={{ height: "75vh" }}>
-            <div className="absolute top-0 left-0 w-full h-8 bg-gray-900 border-b border-white/10 flex items-center px-4 gap-2 z-10">
-              <div className="w-3 h-3 rounded-full bg-red-500" />
-              <div className="w-3 h-3 rounded-full bg-yellow-500" />
-              <div className="w-3 h-3 rounded-full bg-green-500" />
-              <div className="mx-auto flex-1 text-center text-xs text-gray-500 font-mono overflow-hidden whitespace-nowrap text-ellipsis px-10">
-                {lpUrl} — Modified
-              </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="flex flex-col w-full h-[75vh] border border-gray-800 bg-[#0a0a0a]">
+               <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-widest text-gray-500">Original Architecture</span>
+               </div>
+               <iframe src={lpUrl} className="w-full h-full bg-white" title="Original" />
             </div>
-            {!previewReady && (
-              <div className="absolute inset-0 flex items-center justify-center pt-8 bg-gray-950/50 z-5">
-                <div className="text-gray-400 animate-pulse">Loading preview...</div>
-              </div>
-            )}
-            <iframe
-              name="preview-frame"
-              className="w-full h-full bg-white pt-8"
-              title="Personalized Result"
-            />
+
+            <div className="flex flex-col w-full h-[75vh] border border-gray-500 bg-[#0a0a0a] relative">
+               <div className="px-4 py-3 border-b border-gray-500 flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-widest text-white">Enhanced Protocol</span>
+               </div>
+               {!previewReady && (
+                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-10">
+                   <div className="text-xs uppercase tracking-widest text-gray-400 animate-pulse">Rendering Inert Artifact...</div>
+                 </div>
+               )}
+               <iframe name="preview-frame" className="w-full h-full bg-white" title="Personalized" />
+            </div>
           </div>
         </div>
       )}
